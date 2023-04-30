@@ -214,11 +214,12 @@
                                              :collect `(,arg-name (gensym ,(string arg-name))))
                                    ,,(%emulate-backquote
                                       (%emulate-backquote
-                                       `(let ,(loop :for arg-name :in arg-names
+                                       `(the ,return-type
+                                         (let ,(loop :for arg-name :in arg-names
                                                     :collect `(,arg-name ,(alexandria:symbolicate arg-name '-form)))
-                                          ,@body)
+                                          ,@body))
                                        (append arg-names (mapcar (lambda (x) (alexandria:symbolicate x '-form)) arg-names)))
-                                      '()))))
+                                      template-args))))
                               
                        (push (list ',name ,@template-args)
                              (get name 'template-pf))))))
@@ -277,9 +278,12 @@
   (defpolymorph foo ((a t1) (b t1)) (values t1 &optional)
     (cl:+ a b)))
 
-#||
 (defun test (a b)
   (declare (optimize speed)
            (type fixnum a b))
   (foo a b))
-||#
+
+(defun test2 (a b)
+  (declare (optimize speed)
+           (type single-float a b))
+  (foo a b))
