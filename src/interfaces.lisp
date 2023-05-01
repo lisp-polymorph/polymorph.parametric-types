@@ -117,3 +117,4 @@
   (at-safe (a ind) (values (or null t1) boolean &optional)))
 
 (definstance name ((string :item character)))
+

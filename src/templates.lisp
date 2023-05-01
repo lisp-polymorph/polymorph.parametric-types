@@ -358,8 +358,3 @@
            (type (simple-array (vector fixnum) (10 20)) v))
   (at2 v 1 2))
 
-
-
-(template (t1)
-    ()
-  (definterface))
