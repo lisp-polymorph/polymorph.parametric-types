@@ -81,10 +81,10 @@
 
   (defun %emulate-backquote (tree args)
     (labels ((rec (tree)
-               (if (listp tree)
-                   `(list ,@(mapcar #'rec tree))
-                   (if (member tree args :test #'equal)
-                       tree
+               (if (member tree args :test #'equal)
+                   tree
+                   (if (listp tree)
+                       `(list ,@(mapcar #'rec tree))
                        `',tree))))
 
       (rec tree)))
@@ -187,4 +187,19 @@
               :else :do (push arg types)
                         (push arg args)
                         (setf kind arg))
-       (values (reverse types) (reverse args))))))
+       (values (reverse types) (reverse args)))))
+
+
+
+  (defun template-match (template-type actual-type template-args)  ;; FIXME do something about ordering
+    (let ((result))
+      (labels ((rec (template-part actual-part)
+                 (cond ((and (symbolp template-part) (member template-part template-args))
+                        (push (cons template-part actual-part) result))
+                       ((symbolp template-part)
+                        (assert (alexandria:type= template-part actual-part)))
+                       ((listp template-part)
+                        (assert (listp actual-part))
+                        (map nil #'rec template-part actual-part)))))
+        (rec template-type actual-type)
+        result))))

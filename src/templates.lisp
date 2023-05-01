@@ -153,8 +153,7 @@
                            (cond ((symbolp x) nil)
                                  ((and (listp x) (= 2 (length x))
                                        (symbolp (first x))
-                                       (symbolp (second x))
-                                       (member (second x) template-args))
+                                       (some (lambda (y) (find-tree y (second x))) template-args))
                                   (push (first x) names))
                                  ((listp x) (rec x))))
                         list)))
@@ -163,15 +162,17 @@
 
 
 
-  (defun validate-template (arg-map template-map)
+  (defun validate-template (arg-map template-map template-args)
     (let ((mapping (make-hash-table :test #'equal)))
       (loop :for (var-name . type) :in arg-map
             :for (_var-name . temp-type) :in template-map
             :do (assert (eql var-name _var-name))
-                (multiple-value-bind (type-val ok) (gethash temp-type mapping)
-                  (if ok
-                      (assert (equal type-val type))
-                      (setf (gethash temp-type mapping) type))))
+                (let ((match-list (template-match temp-type type template-args)))
+                  (loop :for (temp . actual-type) :in match-list
+                        :do (multiple-value-bind (type-val ok) (gethash temp mapping)
+                              (if ok
+                                  (assert (alexandria:type= type-val actual-type)) ;;FIXME very poor way of checking
+                                  (setf (gethash temp mapping) actual-type))))))
       mapping))
 
 
@@ -201,25 +202,29 @@
                          `(eval-when (:compile-toplevel
                                       :load-toplevel
                                       :execute)
-                            ,,(%emulate-backquote template-form template-args)
-                            (defpolymorph-compiler-macro ,',truename ,,(%emulate-backquote type-list template-args)
-                                ,',(mapcar (lambda (x)
-                                             (cond ((member x '(&optional &key &aux &rest &allow-other-keys))
-                                                    x)
-                                                   ((symbolp x) (alexandria:symbolicate x '-form))
-                                                   ((listp x) (list* (alexandria:symbolicate (first x) '-form)
-                                                                     (rest x)))))
-                                           arg-list)
-                               (let ,',(loop :for arg-name :in arg-names
-                                             :collect `(,arg-name (gensym ,(string arg-name))))
-                                   ,,(%emulate-backquote
-                                      (%emulate-backquote
-                                       `(the ,return-type
-                                         (let ,(loop :for arg-name :in arg-names
-                                                    :collect `(,arg-name ,(alexandria:symbolicate arg-name '-form)))
-                                          ,@body))
-                                       (append arg-names (mapcar (lambda (x) (alexandria:symbolicate x '-form)) arg-names)))
-                                      template-args))))
+                            ,,(%emulate-backquote template-form template-args))
+                            ;(defpolymorph-compiler-macro ,',truename ,,(%emulate-backquote type-list template-args)
+                            ;    ,',(append (mapcar (lambda (x)
+                            ;                        (cond ((member x '(&optional &key &aux &rest &allow-other-keys))
+                            ;                               x
+                            ;                              ((symbolp x) (alexandria:symbolicate x '-form))
+                            ;                              ((listp x) (list* (alexandria:symbolicate (first x) '-form)
+                            ;                                                (rest x)
+                            ;                      arg-list
+                            ;               (list '&environment 'env)
+                            ;   (let ,',(loop :for arg-name :in arg-names
+                            ;                 :collect `(,arg-name (gensym ,(string arg-name)))
+                            ;       ,,(%emulate-backquote
+                            ;          (%emulate-backquote
+                            ;           `(the ,return-type
+                            ;             (let ,(loop :for arg-name :in arg-names
+                            ;                         :collect `(,arg-name ,(alexandria:symbolicate arg-name '-form))
+                            ;               ,@(loop :for arg-name :in arg-names
+                            ;                       :collect `(declare (type (%form-type ,(alexandria:symbolicate arg-name '-form) env) ,arg-name))
+                            ;               ,@body
+                            ;           (append arg-names (mapcar (lambda (x) (alexandria:symbolicate x '-form)) arg-names)
+                            ;                   (mapcar (lambda (x) `(%form-type ,(alexandria:symbolicate x '-form) env)) arg-names)
+                            ;          template-args))
                               
                        (push (list ',name ,@template-args)
                              (get name 'template-pf))))))
@@ -235,7 +240,7 @@
                    (let* ((actual-types (list ,@(loop :for temp-name :in temp-names
                                                       :collect `(cons ',temp-name
                                                                  ,(alexandria:symbolicate 'type- temp-name)))))
-                          (mapping (validate-template actual-types ',templated-args)))
+                          (mapping (validate-template actual-types ',templated-args ',template-args)))
                      (apply #',(alexandria:symbolicate 'ensure-pf- truename) (mapcar (lambda (name) (gethash name mapping)) ',template-args))
                      ,@body)))
                      ;(,truename ,@(%get-pf-arg-names args))))))))))) ;; !FIXME! problem with code walking
@@ -248,11 +253,13 @@
                        (let* ((actual-types (list ,@(loop :for temp-name :in temp-names
                                                           :collect `(cons ',temp-name
                                                                      ,(alexandria:symbolicate 'type- temp-name)))))
-                              (mapping (validate-template actual-types ',templated-args)))
+                              (mapping (validate-template actual-types ',templated-args ',template-args)))
+                        ; (loop for k being the hash-keys in mapping using (hash-value v)
+                         ;      do (format t "~a=>~a~%" k v)))
                          (apply #',(alexandria:symbolicate 'ensure-pf- truename) (mapcar (lambda (name) (gethash name mapping)) ',template-args))
-                         `(,',truename ,@',(%get-pf-arg-names args)))))))))))))
-
-
+                         ;`(,',truename ,@',(%get-pf-arg-names args)))))))))))))
+                         ,(%emulate-backquote (list* 'funcall `#',truename (%get-pf-arg-names args))
+                                              (%get-pf-arg-names args)))))))))))))
 
 ;; to be continued
 (template
@@ -272,7 +279,7 @@
                  :snd (pair 'fixnum 'string :fst a :snd b))))
     (declare (type (pair (pair fixnum string) (pair fixnum string)) x))
     (cl:+ (fst (fst x)) (fst (fst x)))))
-
+#||
 (template (t1)
     ()
   (defpolymorph foo ((a t1) (b t1)) (values t1 &optional)
@@ -287,3 +294,26 @@
   (declare (optimize speed)
            (type single-float a b))
   (foo a b))
+
+
+(template (t1)
+    ()
+  (defpolymorph at ((v (vector t1)) (i ind)) (values t1 &optional)
+    (aref v i)))
+
+
+(defun test3 (a)
+  (declare (optimize speed)
+           (type (vector string) a))
+  (at a 10))
+||#
+(template (t1)
+    ()
+  (defpolymorph at ((v (vector t1)) (i ind)) (values t1 &optional)
+    (aref v i)))
+
+
+(defun test3 (a)
+  (declare (optimize speed)
+           (type (vector string) a))
+  (at a 10))
