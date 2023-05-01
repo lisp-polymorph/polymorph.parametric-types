@@ -197,7 +197,8 @@
                  (cond ((and (symbolp template-part) (member template-part template-args))
                         (push (cons template-part actual-part) result))
                        ((symbolp template-part)
-                        (assert (alexandria:type= template-part actual-part)))
+                        (cond ((eql template-part 'cl:*) t) ;;TODO think about this more
+                              (t (assert (alexandria:type= template-part actual-part)))))
                        ((listp template-part)
                         (assert (listp actual-part))
                         (map nil #'rec template-part actual-part)))))
